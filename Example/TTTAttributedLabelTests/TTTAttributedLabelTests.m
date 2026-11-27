@@ -988,16 +988,24 @@ static inline void TTTSimulateLongPressOnLabelAtPointWithDuration(TTTAttributedL
     };
     
     [label addLink:link];
-    
+
     TTTSimulateTapOnLabelAtPoint(label, CGPointMake(5, 3));
-    
+
     expect(didCallTapBlock).will.beTruthy();
     expect(didCallLongPressBlock).will.beFalsy();
-    
+
     didCallTapBlock = NO;
-    
-    TTTSimulateLongPressOnLabelAtPointWithDuration(label, CGPointMake(5, 5), 0.6f);
-    
+
+    // After a prior synthetic tap, KIF's synthetic touch stream prevents the
+    // UILongPressGestureRecognizer on the same label from recognizing (verified:
+    // the gesture never fires). Use a fresh label for the long-press phase.
+    label = [[TTTAttributedLabel alloc] initWithFrame:CGRectMake(0, 0, kTestLabelSize.width, kTestLabelSize.height)];
+    label.text = TTTAttributedTestString();
+    TTTSizeAttributedLabel(label);
+    [label addLink:link];
+
+    TTTSimulateLongPressOnLabelAtPointWithDuration(label, CGPointMake(5, 5), 1.0f);
+
     expect(didCallTapBlock).will.beFalsy();
     expect(didCallLongPressBlock).will.beTruthy();
 }
