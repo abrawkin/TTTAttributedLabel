@@ -268,15 +268,26 @@ static inline CGSize CTFramesetterSuggestFrameSizeForAttributedStringWithConstra
     NSMutableDictionary *mutableInactiveLinkAttributes = [NSMutableDictionary dictionary];
     [mutableInactiveLinkAttributes setObject:[NSNumber numberWithBool:NO] forKey:(NSString *)kCTUnderlineStyleAttributeName];
 
-    if ([NSMutableParagraphStyle class]) {
-        [mutableLinkAttributes setObject:[UIColor blueColor] forKey:(NSString *)kCTForegroundColorAttributeName];
-        [mutableActiveLinkAttributes setObject:[UIColor redColor] forKey:(NSString *)kCTForegroundColorAttributeName];
-        [mutableInactiveLinkAttributes setObject:[UIColor grayColor] forKey:(NSString *)kCTForegroundColorAttributeName];
+    // Storing UIColor (rather than CGColor) keeps the attribute dynamic: the
+    // color is resolved against the current trait collection each time the
+    // text is rendered, so links adapt to Dark Mode and trait changes.
+    UIColor *linkColor = nil;
+    UIColor *activeLinkColor = nil;
+    UIColor *inactiveLinkColor = nil;
+
+    if (@available(iOS 13.0, *)) {
+        linkColor = [UIColor systemBlueColor];
+        activeLinkColor = [UIColor systemRedColor];
+        inactiveLinkColor = [UIColor systemGrayColor];
     } else {
-        [mutableLinkAttributes setObject:(__bridge id)[[UIColor blueColor] CGColor] forKey:(NSString *)kCTForegroundColorAttributeName];
-        [mutableActiveLinkAttributes setObject:(__bridge id)[[UIColor redColor] CGColor] forKey:(NSString *)kCTForegroundColorAttributeName];
-        [mutableInactiveLinkAttributes setObject:(__bridge id)[[UIColor grayColor] CGColor] forKey:(NSString *)kCTForegroundColorAttributeName];
+        linkColor = [UIColor blueColor];
+        activeLinkColor = [UIColor redColor];
+        inactiveLinkColor = [UIColor grayColor];
     }
+
+    [mutableLinkAttributes setObject:linkColor forKey:(NSString *)kCTForegroundColorAttributeName];
+    [mutableActiveLinkAttributes setObject:activeLinkColor forKey:(NSString *)kCTForegroundColorAttributeName];
+    [mutableInactiveLinkAttributes setObject:inactiveLinkColor forKey:(NSString *)kCTForegroundColorAttributeName];
 
     self.linkAttributes = [NSDictionary dictionaryWithDictionary:mutableLinkAttributes];
     self.activeLinkAttributes = [NSDictionary dictionaryWithDictionary:mutableActiveLinkAttributes];
@@ -1214,6 +1225,27 @@ afterInheritingLabelAttributesAndConfiguringWithBlock:(NSMutableAttributedString
     }
 
     return textRect;
+}
+
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+
+#if !TARGET_OS_TV
+    BOOL appearanceChanged = previousTraitCollection != nil &&
+        (self.traitCollection.userInterfaceStyle != previousTraitCollection.userInterfaceStyle ||
+         self.traitCollection.displayScale != previousTraitCollection.displayScale ||
+         self.traitCollection.layoutDirection != previousTraitCollection.layoutDirection);
+#else
+    BOOL appearanceChanged = previousTraitCollection != nil &&
+        self.traitCollection.displayScale != previousTraitCollection.displayScale;
+#endif
+
+    // Re-render so dynamic colors (e.g. system colors in link attributes)
+    // resolve against the new trait environment.
+    if (appearanceChanged) {
+        [self setNeedsFramesetter];
+        [self setNeedsDisplay];
+    }
 }
 
 - (void)drawTextInRect:(CGRect)rect {
