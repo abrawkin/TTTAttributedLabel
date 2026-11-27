@@ -713,13 +713,19 @@ static inline CGSize CTFramesetterSuggestFrameSizeForAttributedStringWithConstra
     NSLayoutManager *layoutManager = [[NSLayoutManager alloc] init];
     [textStorage addLayoutManager:layoutManager];
 
-    NSTextContainer *textContainer = [[NSTextContainer alloc] initWithSize:self.bounds.size];
+    // Match the rect used when drawing, so textInsets and verticalAlignment are taken into account.
+    CGRect textRect = [self textRectForBounds:self.bounds limitedToNumberOfLines:self.numberOfLines];
+
+    NSTextContainer *textContainer = [[NSTextContainer alloc] initWithSize:textRect.size];
     [layoutManager addTextContainer:textContainer];
 
-    NSRange glyphRange;
-    [layoutManager characterRangeForGlyphRange:range actualGlyphRange:&glyphRange];
+    NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:range actualCharacterRange:NULL];
+    CGRect glyphRect = [layoutManager boundingRectForGlyphRange:glyphRange inTextContainer:textContainer];
 
-    return [layoutManager boundingRectForGlyphRange:glyphRange inTextContainer:textContainer];
+    // Translate the glyph rect from the text container's coordinates into the label's bounds.
+    glyphRect.origin.x += textRect.origin.x;
+    glyphRect.origin.y += textRect.origin.y;
+    return glyphRect;
 }
 
 - (void)drawFramesetter:(CTFramesetterRef)framesetter
@@ -823,7 +829,8 @@ static inline CGSize CTFramesetterSuggestFrameSizeForAttributedStringWithConstra
                 CTLineDraw(truncatedLine, c);
                 
                 NSRange linkRange;
-                if ([attributedTruncationString attribute:NSLinkAttributeName atIndex:0 effectiveRange:&linkRange]) {
+                if ([attributedTruncationString length] > 0 &&
+                    [attributedTruncationString attribute:NSLinkAttributeName atIndex:0 effectiveRange:&linkRange]) {
                     NSRange tokenRange = [truncationString.string rangeOfString:attributedTruncationString.string];
                     NSRange tokenLinkRange = NSMakeRange((NSUInteger)(lastLineRange.location+lastLineRange.length)-tokenRange.length, (NSUInteger)tokenRange.length);
                     
@@ -1598,6 +1605,9 @@ afterInheritingLabelAttributesAndConfiguringWithBlock:(NSMutableAttributedString
     [coder encodeObject:@(self.firstLineIndent) forKey:NSStringFromSelector(@selector(firstLineIndent))];
     [coder encodeObject:@(self.lineSpacing) forKey:NSStringFromSelector(@selector(lineSpacing))];
     [coder encodeObject:@(self.lineHeightMultiple) forKey:NSStringFromSelector(@selector(lineHeightMultiple))];
+    [coder encodeObject:@(self.minimumLineHeight) forKey:NSStringFromSelector(@selector(minimumLineHeight))];
+    [coder encodeObject:@(self.maximumLineHeight) forKey:NSStringFromSelector(@selector(maximumLineHeight))];
+    [coder encodeBool:self.extendsLinkTouchArea forKey:NSStringFromSelector(@selector(extendsLinkTouchArea))];
     [coder encodeUIEdgeInsets:self.textInsets forKey:NSStringFromSelector(@selector(textInsets))];
     [coder encodeInteger:self.verticalAlignment forKey:NSStringFromSelector(@selector(verticalAlignment))];
 
@@ -1681,6 +1691,10 @@ afterInheritingLabelAttributesAndConfiguringWithBlock:(NSMutableAttributedString
 
     if ([coder containsValueForKey:NSStringFromSelector(@selector(lineHeightMultiple))]) {
         self.lineHeightMultiple = [[coder decodeObjectForKey:NSStringFromSelector(@selector(lineHeightMultiple))] floatValue];
+    }
+
+    if ([coder containsValueForKey:NSStringFromSelector(@selector(extendsLinkTouchArea))]) {
+        self.extendsLinkTouchArea = [coder decodeBoolForKey:NSStringFromSelector(@selector(extendsLinkTouchArea))];
     }
 
     if ([coder containsValueForKey:NSStringFromSelector(@selector(textInsets))]) {
