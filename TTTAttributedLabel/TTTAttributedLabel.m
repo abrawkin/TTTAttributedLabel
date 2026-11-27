@@ -499,6 +499,27 @@ static inline CGSize CTFramesetterSuggestFrameSizeForAttributedStringWithConstra
     self.linkModels = [NSArray arrayWithArray:mutableLinkModels];
 }
 
+// Registers a link that is discovered during drawing (e.g. the truncation
+// token's NSLinkAttributeName). Unlike addLinks:, this neither mutates
+// attributedText nor calls setNeedsDisplay, which would otherwise trigger
+// another draw pass from within the current one. Any previously registered
+// link covering the same range is replaced, so repeated draw passes don't
+// accumulate duplicate link models.
+- (void)registerLinkDuringDraw:(TTTAttributedLabelLink *)link {
+    NSMutableArray *mutableLinkModels = [NSMutableArray arrayWithArray:self.linkModels];
+
+    NSRange range = link.result.range;
+    [mutableLinkModels enumerateObjectsWithOptions:NSEnumerationReverse
+                                        usingBlock:^(TTTAttributedLabelLink *existing, NSUInteger idx, BOOL *stop) {
+        if (NSIntersectionRange(existing.result.range, range).length > 0) {
+            [mutableLinkModels removeObjectAtIndex:idx];
+        }
+    }];
+
+    [mutableLinkModels addObject:link];
+    self.linkModels = [NSArray arrayWithArray:mutableLinkModels];
+}
+
 - (TTTAttributedLabelLink *)addLinkWithTextCheckingResult:(NSTextCheckingResult *)result
                                                attributes:(NSDictionary *)attributes
 {
@@ -823,11 +844,16 @@ static inline CGSize CTFramesetterSuggestFrameSizeForAttributedStringWithConstra
                 CTLineDraw(truncatedLine, c);
                 
                 NSRange linkRange;
-                if ([attributedTruncationString attribute:NSLinkAttributeName atIndex:0 effectiveRange:&linkRange]) {
+                NSURL *tokenURL = [attributedTruncationString attribute:NSLinkAttributeName atIndex:0 effectiveRange:&linkRange];
+                if (tokenURL) {
                     NSRange tokenRange = [truncationString.string rangeOfString:attributedTruncationString.string];
                     NSRange tokenLinkRange = NSMakeRange((NSUInteger)(lastLineRange.location+lastLineRange.length)-tokenRange.length, (NSUInteger)tokenRange.length);
-                    
-                    [self addLinkToURL:[attributedTruncationString attribute:NSLinkAttributeName atIndex:0 effectiveRange:&linkRange] withRange:tokenLinkRange];
+
+                    TTTAttributedLabelLink *tokenLink = [[TTTAttributedLabelLink alloc] initWithAttributes:self.linkAttributes
+                                                                           activeAttributes:self.activeLinkAttributes
+                                                                        inactiveAttributes:self.inactiveLinkAttributes
+                                                                        textCheckingResult:[NSTextCheckingResult linkCheckingResultWithRange:tokenLinkRange URL:tokenURL]];
+                    [self registerLinkDuringDraw:tokenLink];
                 }
 
                 CFRelease(truncatedLine);
